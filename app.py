@@ -5,10 +5,11 @@ import seaborn as sns
 from textblob import TextBlob
 import os
 
-# Mengunduh korpus data TextBlob otomatis untuk keperluan pengujian real-time di server cloud
-os.system("python -m textblob.download_corpora")
+# --- IMPORT UTILITAS MODUL TERPISAH ---
+from translation_service import translate_to_english
+from preprocessing import full_preprocess
 
-# --- CONFIGURASI HALAMAN ---
+# --- KONFIGURASI HALAMAN ---
 st.set_page_config(
     page_title="Mind Sentiment - Burnout Detection Dashboard",
     page_icon="🧠",
@@ -18,20 +19,13 @@ st.set_page_config(
 # --- LOAD DATASET ---
 @st.cache_data
 def load_data():
-    # Memuat data dari folder data/
     df = pd.read_csv("data/dataset_label.csv")
-    
-    # [FEATURE ENGINEERING OTOMATIS]
-    # Jika di komputer lokal Anda kolom ini belum ada, sistem akan membuatnya secara otomatis
     if 'word_count' not in df.columns:
         df['word_count'] = df['text_clean'].apply(lambda x: len(str(x).split()))
-        
     if 'subjectivity' not in df.columns:
         df['subjectivity'] = df['text_clean'].apply(lambda x: TextBlob(str(x)).sentiment.subjectivity)
-        
     return df
 
-# Memanggil fungsi load data
 df_clean = load_data()
 
 # --- SIDEBAR & NAVIGASI ---
@@ -40,15 +34,12 @@ st.sidebar.markdown("Dashboard Deteksi Risiko Burnout")
 st.sidebar.write("---")
 menu = st.sidebar.radio("Pilih Menu:", ["Ringkasan Data", "Analisis Distribusi & Insight (EDA)", "Uji Fitur (Real-time Prediction)"])
 
-# --- JUDUL UTAMA ---
 st.title("🧠 Proyek Mind Sentiment: Deteksi Dini Risiko Burnout")
-st.markdown("Dasbor interaktif analisis sentimen berbasis teks untuk mengidentifikasi indikasi kelelahan mental.")
 st.write("---")
 
 # ==================== MENU 1: RINGKASAN DATA ====================
 if menu == "Ringkasan Data":
     st.subheader("📊 Sampel Dataset Hasil Feature Engineering")
-    st.write("Berikut adalah 10 baris pertama data teks yang telah dibersihkan beserta metrik linguistiknya:")
     st.dataframe(df_clean.head(10), use_container_width=True)
     
     st.write("---")
@@ -64,120 +55,124 @@ if menu == "Ringkasan Data":
 # ==================== MENU 2: ANALISIS DISTRIBUSI & INSIGHT (EDA) ====================
 elif menu == "Analisis Distribusi & Insight (EDA)":
     st.subheader("📈 Visualisasi Hasil Exploratory Data Analysis & Pertanyaan Bisnis")
-    st.write("Menu ini menyajikan grafik analitis untuk menjawab 4 pertanyaan bisnis utama terkait karakteristik data teks indikasi burnout.")
     
-    # Membuat Tab interaktif berdasarkan Pertanyaan Bisnis
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📌 Q1: Dominansi Emosi",  
+        "📌 Q1: Dominansi Emosi", 
+        "📊 Q4: Kecukupan Kelas Neutral", 
         "📏 Q2: Panjang Teks (Word Count)", 
-        "🔮 Q3: Skor Subjektivitas Teks",
-        "📊 Q4: Kecukupan Kelas Neutral"
+        "🔮 Q3: Skor Subjektivitas Teks"
     ])
     
-    # --- TAB 1: PERTANYAAN BISNIS 1 ---
     with tab1:
-        st.markdown("#### **Pertanyaan 1: Dari 28 kategori emosi GoEmotions, emosi negatif mana yang paling dominan dan berpotensi menjadi indikator utama risiko burnout?**")
-        
-        # Data static dari output Cell 21 notebook Anda
+        st.markdown("#### **Pertanyaan 1: Dari 28 kategori emosi GoEmotions, emosi negatif mana yang paling dominan?**")
         top_emotions_data = {
             'neutral': 15470, 'approval': 4838, 'admiration': 4836, 
             'annoyance': 3471, 'gratitude': 3450, 'disapproval': 3062, 
             'curiosity': 2770, 'amusement': 2640, 'optimism': 2428, 'realization': 2359
         }
         df_top_emo = pd.DataFrame(list(top_emotions_data.items()), columns=['Emosi', 'Jumlah'])
-        
         fig, ax = plt.subplots(figsize=(10, 4.5))
         sns.barplot(x='Jumlah', y='Emosi', data=df_top_emo, palette='viridis', ax=ax)
-        ax.set_title('Top 10 Kategori Emosi Terbanyak dalam Dataset Utama')
-        ax.set_xlabel('Jumlah Teks')
         ax.grid(axis='x', linestyle='--', alpha=0.5)
         st.pyplot(fig)
         
-        st.success("""
-        💡 **Insight & Jawaban Pertanyaan 1:**
-        Berdasarkan hasil visualisasi distribusi frekuensi, setelah kelas *neutral*, emosi negatif yang **paling dominan muncul adalah annoyance (kekesalan) dan disapproval (ketidaksetujuan/penolakan)**, kemudian diikuti secara signifikan oleh *sadness* (kesedihan) dan *disappointment* (kekecewaan). 
-        Kategori-kategori ini merupakan indikator utama yang merepresentasikan rasa frustrasi akibat beban kerja/studi berlebih, sehingga sangat valid digunakan sebagai penanda risiko burnout tinggi.
-        """)
-
-    # --- TAB 2: PERTANYAAN BISNIS 2 ---
     with tab2:
-        st.markdown("#### **Pertanyaan 2: Bagaimana perbandingan rata-rata panjang teks (jumlah kata) antara kelompok emosi positif dengan kelompok emosi negatif?**")
-        
-        fig, ax = plt.subplots(figsize=(8, 4.5))
-        sns.boxplot(x='label', y='word_count', data=df_clean, palette={'negative':'#ef4444', 'neutral':'#f59e0b', 'positive':'#22c55e'}, ax=ax)
-        ax.set_title('Perbandingan Panjang Teks (Word Count) Berdasarkan Sentimen')
-        ax.set_xlabel('Sentimen')
-        ax.set_ylabel('Jumlah Kata')
-        ax.set_ylim(0, 45) # Membatasi agar outlier ekstrem tidak merusak skala visualisasi boxplot
-        st.pyplot(fig)
-        
-        st.warning("""
-        💡 **Insight & Jawaban Pertanyaan 2:**
-        Berdasarkan boxplot di atas, terlihat bahwa **Sentimen Negative memiliki median dan kuartil atas yang paling tinggi** dibandingkan kelompok lainnya. 
-        
-        **Interpretasi Data Science:** Pengguna yang sedang mengalami emosi negatif (stres, kesal, sedih) cenderung menulis teks yang lebih panjang untuk meluapkan perasaan atau menjelaskan konteks masalah mereka (curhat). Ini menandakan fitur `word_count` merupakan salah satu fitur pendukung yang sangat kuat dalam memisahkan teks keluhan burnout dari ekspresi harian biasa.
-        """)
-
-    # --- TAB 3: PERTANYAAN BISNIS 3 ---
-    with tab3:
-        st.markdown("#### **Pertanyaan 3: Apakah teks dengan tingkat subjektivitas yang lebih tinggi cenderung berasal dari kategori emosi yang berhubungan dengan tekanan mental?**")
-        
-        fig, ax = plt.subplots(figsize=(8, 4.5))
-        sns.violinplot(x='label', y='subjectivity', data=df_clean, palette={'negative':'#ef4444', 'neutral':'#f59e0b', 'positive':'#22c55e'}, ax=ax)
-        ax.set_title('Perbandingan Tingkat Subjektivitas Berdasarkan Sentimen')
-        ax.set_xlabel('Sentimen')
-        ax.set_ylabel('Subjectivity Score')
-        st.pyplot(fig)
-        
-        st.success("""
-        💡 **Insight & Jawaban Pertanyaan 3:**
-        Berdasarkan bentuk violin plot di atas, pola sebaran data menunjukkan karakteristik yang sangat jelas:
-        - **Sentimen Negative dan Positive memiliki distribusi yang melebar ke arah skor 1.0 (sangat subjektif)** dengan kerapatan tertinggi di rentang 0.5 - 0.8.
-        - **Sentimen Neutral mengumpul di area bawah (0.0 - 0.5)** yang menandakan sifat teks objektif/faktual.
-        
-        **Interpretasi Data Science:**
-        Teks yang mengandung emosi negatif terkait tekanan mental/burnout bersifat sangat subjektif karena diisi oleh opini personal dan luapan perasaan pribadi. Hal ini membuktikan bahwa metrik `subjectivity` score adalah fitur hasil *feature engineering* yang sangat valid dan akurat untuk mendeteksi tanda kelelahan emosional.
-        """)
-    
-    # --- TAB 4: PERTANYAAN BISNIS 4 ---
-    with tab4:
-        st.markdown("#### **Pertanyaan 4: Apakah jumlah sampel pada kategori emosi 'neutral' sudah cukup memadai untuk membedakan ekspresi harian normal dengan kelelahan mental?**")
-        
+        st.markdown("#### **Pertanyaan 4: Apakah jumlah sampel pada kategori emosi 'neutral' sudah memadai?**")
         fig, ax = plt.subplots(figsize=(8, 4))
-        sns.countplot(x='label', data=df_clean, palette={'negative':'#ef4444', 'neutral':'#f59e0b', 'positive':'#22c55e'}, order=['neutral', 'negative', 'positive'], ax=ax)
-        ax.set_title('Distribusi Jumlah Data per Sentimen Utama')
-        ax.set_xlabel('Sentimen')
-        ax.set_ylabel('Jumlah Sampel')
+        sns.countplot(x='label', data=df_clean, palette={'negative':'#ef4444', 'neutral':'#f59e0b', 'positive':'#22c55e', 'unknown':'gray'}, order=['neutral', 'negative', 'positive', 'unknown'], ax=ax)
         st.pyplot(fig)
         
-        st.info("""
-        💡 **Insight & Jawaban Pertanyaan 4:**
-        Kelas **neutral memiliki jumlah sampel yang sangat besar dan seimbang (~21.982 data)** jika dibandingkan dengan kelas *negative* (~23.106 data). 
-        Jumlah ini **sangat memadai dan ideal** untuk dijadikan sebagai *baseline* (kelas pembanding). Dengan demikian, model AI memiliki referensi data yang cukup untuk mempelajari pola kalimat harian normal yang tidak mengandung indikasi stres/burnout.
-        """)
-    
+    with tab3:
+        st.markdown("#### **Pertanyaan 2: Bagaimana perbandingan rata-rata panjang teks antara emosi positif dengan emosi negatif?**")
+        df_visual = df_clean.copy()
+        df_visual['temp_sentiment'] = df_visual['label'].str.capitalize()
+        notebook_palette = {'Negative': '#ef4444', 'Positive': '#22c55e', 'Neutral': '#f59e0b', 'Unknown': 'gray'}
+        fig, ax = plt.subplots(figsize=(8, 5))
+        sns.boxplot(x='temp_sentiment', y='word_count', data=df_visual, order=['Negative', 'Positive', 'Neutral', 'Unknown'], palette=notebook_palette, hue='temp_sentiment', legend=False, width=0.6, ax=ax)
+        ax.set_ylim(0, 60)
+        ax.grid(False)
+        st.pyplot(fig)
+        
+    with tab4:
+        st.markdown("#### **Pertanyaan 3: Apakah teks dengan tingkat subclass subjektivitas tinggi cenderung dari emosi tekanan mental?**")
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+        sns.violinplot(x='label', y='subjectivity', data=df_clean, palette={'negative':'#ef4444', 'neutral':'#f59e0b', 'positive':'#22c55e', 'unknown':'gray'}, ax=ax)
+        st.pyplot(fig)
 
-# ==================== MENU 3: UJI FITUR (REAL-TIME PREDICTION) ====================
+# ==================== MENU 3: UJI FITUR (ALUR PIPELINE UTAMA) ====================
 elif menu == "Uji Fitur (Real-time Prediction)":
-    st.subheader("🔬 Uji Ekstraksi Fitur Teks secara Instan")
-    st.write("Masukkan kalimat atau keluhan untuk melihat bagaimana sistem mengekstrak fitur teks secara langsung.")
-    
-    user_input = st.text_area("Masukkan teks di sini (Contoh: 'I feel so overwhelmed with this study routine'):", "")
-    
-    if user_input:
-        # Ekstraksi Fitur Linguistik secara Real-time
-        word_cnt = len(str(user_input).split())
-        subj_score = TextBlob(str(user_input)).sentiment.subjectivity
-        
-        st.markdown("### 🛠️ Hasil Ekstraksi Fitur (Feature Engineering)")
-        col1, col2 = st.columns(2)
-        col1.metric(label="Jumlah Kata (Word Count)", value=word_cnt)
-        col2.metric(label="Skor Subjektivitas (Subjectivity Score)", value=f"{subj_score:.4f}")
-        
-        st.markdown("### 🎯 Analisis Prediksi Sederhana")
-        if "hurt" in user_input.lower() or "overwhelmed" in user_input.lower() or "stres" in user_input.lower() or "sad" in user_input.lower():
-            st.error("🚨 Hasil Klasifikasi: **HIGH RISK OF BURNOUT (Negative Emotion)**")
-        elif subj_score < 0.3:
-            st.warning("🟡 Hasil Klasifikasi: **NEUTRAL / EXPRESSIONS OF DAILY ROUTINE**")
+    st.subheader("🔬 Laboratorium Uji Fitur & Klasifikasi")
+    st.markdown("""
+    Dashboard ini melakukan simulasi penuh alur kerja arsitektur sistem cerdas secara terpisah: 
+    **Input -> `translation_service.py` -> `preprocessing.py` -> Feature Engineering -> Prediksi.**
+    """)
+
+    user_input = st.text_area(
+        "Masukkan Kalimat Keluhan / Refleksi Harian (Bahasa Indonesia atau Inggris):", 
+        placeholder="Contoh: Saya merasa sangat kewalahan..."
+    )
+
+    if st.button("Jalankan Pipeline Proses", type="primary"):
+        if user_input.strip():
+            
+            # --- TAHAP 1: TRANSLASI ---
+            with st.spinner("Mengecek bahasa & menerjemahkan melalui translation_service.py..."):
+                translated_text = translate_to_english(user_input)
+            
+            # --- TAHAP 2: PIPELINE PREPROCESSING ---
+            with st.spinner("Melakukan pembersihan data melalui full_preprocess di preprocessing.py..."):
+                preprocessed_text = full_preprocess(translated_text)
+            
+            # --- TAHAP 3: FEATURE ENGINEERING ---
+            word_cnt = len(str(preprocessed_text).split())
+            subj_score = TextBlob(translated_text).sentiment.subjectivity
+            
+            # Rendering Alur Perubahan Data Teks
+            st.markdown("### 🗺️ Visualisasi Alur Transformasi Data")
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                st.info("📥 **1. Input Teks Asli**")
+                st.caption(f"_{user_input}_")
+            with col_b:
+                st.success("🔄 **2. Hasil Translasi (English)**")
+                st.caption(f"_{translated_text}_")
+            with col_c:
+                st.warning("🧼 **3. Hasil Teks Bersih (preprocessing.py)**")
+                st.code(preprocessed_text, language="text")
+
+            st.write("---")
+            
+            # Hasil Fitur Numerik
+            st.markdown("### 🛠️ Hasil Ekstraksi Fitur (Feature Engineering)")
+            m1, m2 = st.columns(2)
+            m1.metric("Jumlah Kata Teks Bersih (Word Count)", word_cnt)
+            m2.metric("Skor Subjektivitas (Subjectivity Score)", f"{subj_score:.4f}")
+
+            # Aturan Klasifikasi Berbasis Kata Utuh Kompleks (Token)
+            st.markdown("### 🎯 Hasil Analisis Risiko Burnout")
+            
+            tokens_clean = preprocessed_text.lower().split()
+            tokens_translated = translated_text.lower().split()
+
+            # Kamus Kata Kunci Pendeteksi
+            burnout_keywords = ['tired', 'tire', 'exhaust', 'exhausted', 'overwhelm', 'overwhelmed', 'hurt', 'stress', 'annoy', 'annoyed', 'sad', 'disappoint', 'disappointed', 'lelah']
+            positive_keywords = ['happy', 'happi', 'good', 'glad', 'love', 'blessed', 'grateful', 'joy', 'awesome', 'wonderful', 'bahagia', 'senang']
+
+            has_burnout_word = any(word in tokens_clean or word in tokens_translated for word in burnout_keywords)
+            has_positive_word = any(word in tokens_clean or word in tokens_translated for word in positive_keywords)
+
+            # Aturan Logika Keputusan Akhir
+            if has_burnout_word and not has_positive_word:
+                st.error("🚨 **Hasil: HIGH RISK OF BURNOUT (Indikasi Emosi Negatif)**")
+                st.markdown("**Rekomendasi:** Teks menunjukkan beban pikiran atau indikasi stres emosional yang tinggi. Ambil jeda istirahat yang cukup.")
+            elif has_positive_word:
+                st.success("🟢 **Hasil: WELL-BEING CONDITION (Emosi Positif)**")
+                st.markdown("**Rekomendasi:** Kondisi emosional terpantau aman, sehat, dan dipenuhi energi positif.")
+            elif subj_score < 0.28:
+                st.warning("🟡 **Hasil: NEUTRAL / DAILY ROUTINE EXPRESSION**")
+                st.markdown("**Rekomendasi:** Kalimat bersifat objektif, informatif, atau sekadar memaparkan fakta kegiatan rutin sehari-hari.")
+            else:
+                st.warning("🟡 **Hasil: NEUTRAL / BALANCE SENTIMENT**")
+                st.markdown("**Rekomendasi:** Kalimat mengekspresikan opini umum harian biasa tanpa kecenderungan stres ekstrem.")
         else:
-            st.success("🟢 Hasil Klasifikasi: **WELL-BEING CONDITION (Positive Emotion)**")
+            st.error("Silakan tulis kalimat keluhan terlebih dahulu sebelum memproses!")
